@@ -12,7 +12,7 @@ from data_utils import (
     make_kfold_splits,
 )
 from finetune import evaluate, get_lr_schedule, init_new_embeddings, train
-from models.progen.modeling_progen import ProGenForCausalLM
+from hf_utils import configure_hf_auth, load_model
 
 import logging
 
@@ -37,7 +37,7 @@ def run_fold(
         device = torch.device(args.device)
 
     logger.info(f"Fold {fold_idx}: loading model {args.model}")
-    model = ProGenForCausalLM.from_pretrained(args.model).to(device)
+    model = load_model(args.model, device=device)
     init_new_embeddings(model, prefixes)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
@@ -75,6 +75,9 @@ def main(args: argparse.Namespace):
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed_all(args.seed)
+    env_path = configure_hf_auth()
+    if env_path is not None:
+        logger.info(f"Loaded Hugging Face credentials from {env_path}")
 
     lines, prefixes = load_sequence_lines(args.data_file)
     logger.info(f"Loaded {len(lines)} sequences from {args.data_file}")

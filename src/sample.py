@@ -8,6 +8,7 @@ import re
 from typing import Optional, Union
 
 from tokenizers import Tokenizer, Encoding
+from hf_utils import configure_hf_auth, load_hf_tokenizer, load_model
 from models.progen.modeling_progen import ProGenForCausalLM
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -133,6 +134,9 @@ def main(args):
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed(args.seed)
+    env_path = configure_hf_auth()
+    if env_path is not None:
+        logger.info(f"Loaded Hugging Face credentials from {env_path}")
 
     if args.device == "cuda" and not torch.cuda.is_available():
         logger.warning("CUDA not available. Falling back to CPU.")
@@ -145,14 +149,14 @@ def main(args):
         logger.warning(f"You are using CPU for inference with a relatively high batch size of {args.batch_size}, therefore inference might be slow. Consider using a GPU or smaller batch.")
 
     logger.info(f"Loading model from {args.model}")
-    model = ProGenForCausalLM.from_pretrained(args.model).to(device)
+    model = load_model(args.model, device=device)
     logger.debug("Model loaded.")
 
     logger.info("Loading tokenizer")
     if os.path.exists(os.path.join(args.model, "tokenizer.json")):
         tokenizer: Tokenizer = Tokenizer.from_file(os.path.join(args.model, "tokenizer.json"))
     else:
-        tokenizer: Tokenizer = Tokenizer.from_pretrained(args.model)
+        tokenizer = load_hf_tokenizer(args.model)
     tokenizer.no_padding()
     logger.debug("Tokenizer loaded.")
     logger.debug(f"Tokenizer vocab size: {tokenizer.get_vocab_size()}")

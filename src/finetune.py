@@ -7,6 +7,7 @@ import torch
 from torch.utils.data import DataLoader
 from tokenizers import Tokenizer
 from data_utils import ProteinDataset, build_datasets, load_tokenizer
+from hf_utils import configure_hf_auth, load_model
 from models.progen.modeling_progen import ProGenForCausalLM
 from transformers import (
     get_cosine_schedule_with_warmup,
@@ -177,6 +178,9 @@ def main(args: argparse.Namespace):
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed_all(args.seed)
+    env_path = configure_hf_auth()
+    if env_path is not None:
+        logger.info(f"Loaded Hugging Face credentials from {env_path}")
 
     job_id = os.environ.get("SLURM_JOB_ID")
     if job_id is not None:
@@ -211,7 +215,7 @@ def main(args: argparse.Namespace):
 
     # loading model
     logger.info(f"Loading model: {args.model}...")
-    model = ProGenForCausalLM.from_pretrained(args.model).to(device)
+    model = load_model(args.model, device=device)
     logger.info(f"Model loaded. Parameter count: {model.num_parameters() // 1e6} M")
     init_new_embeddings(model, prefixes)
 

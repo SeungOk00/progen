@@ -5,6 +5,7 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 from tokenizers import Tokenizer
+from hf_utils import load_hf_tokenizer
 
 
 class ProteinDataset(Dataset):
@@ -47,7 +48,7 @@ def load_tokenizer(model_path: str, max_length: int = 1024) -> Tokenizer:
     if os.path.exists(tokenizer_path):
         tokenizer = Tokenizer.from_file(tokenizer_path)
     else:
-        tokenizer = Tokenizer.from_pretrained(model_path)
+        tokenizer = load_hf_tokenizer(model_path)
 
     tokenizer.no_padding()
     tokenizer.enable_padding(

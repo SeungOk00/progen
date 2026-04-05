@@ -25,9 +25,9 @@ def fasta_to_tagged_sequences(
     with open(input_file_name, "r") as handle:
         for record in SeqIO.parse(handle, "fasta"):
             sequence = str(record.seq)
-            parsed_sequences.append(f"<|{label}|>1{sequence}2")
+            parsed_sequences.append(f">{label}\n{sequence}")
             if bidirectional:
-                parsed_sequences.append(f"<|{label}|>2{sequence[::-1]}1")
+                parsed_sequences.append(f">{label}\n{sequence[::-1]}")
 
     return parsed_sequences
 
@@ -154,8 +154,8 @@ def fasta_to_tagged_sequences_versioned(
             else:
                 raise ValueError(f"알 수 없는 버전: {version}. v1/v2/v3/v4 중 선택하세요.")
 
-            parsed_sequences.append(f"<|{label}|>1{sequence}2")
+            parsed_sequences.append(f">{label}\n{sequence}")
             if bidirectional:
-                parsed_sequences.append(f"<|{label}|>2{sequence[::-1]}1")
+                parsed_sequences.append(f">{label}\n{sequence[::-1]}")
 
     return parsed_sequences

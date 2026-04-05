@@ -9,15 +9,16 @@ from hf_utils import load_hf_tokenizer
 
 
 class ProteinDataset(Dataset):
-    def __init__(self, lines: list[str], tokenizer: Tokenizer):
-        self.lines = lines
+    def __init__(self, entries: list[str], tokenizer: Tokenizer):
+        # entries: ">label\nsequence" 형식의 문자열 리스트
+        self.entries = entries
         self.tokenizer = tokenizer
 
     def __len__(self):
-        return len(self.lines)
+        return len(self.entries)
 
     def __getitem__(self, idx):
-        encoding = self.tokenizer.encode(self.lines[idx])
+        encoding = self.tokenizer.encode(self.entries[idx])
         input_ids = torch.tensor(encoding.ids, dtype=torch.long)
         attention_mask = torch.tensor(encoding.attention_mask, dtype=torch.long)
         labels = input_ids.clone()
@@ -30,17 +31,32 @@ class ProteinDataset(Dataset):
 
 
 def load_sequence_lines(file_path: str) -> tuple[list[str], list[str]]:
-    lines = []
+    """
+    학습 파일 로드.
+    포맷:
+      >label
+      SEQUENCE
+    반환: (entries, prefixes)
+      entries: ">label\nSEQUENCE" 리스트
+      prefixes: 고유 레이블(">label") 리스트
+    """
+    entries = []
     prefixes = set()
 
     with open(file_path, "r") as handle:
+        header = None
         for raw_line in handle:
             line = raw_line.strip()
-            prefix = re.match(r"<\|.*\|>", line).group(0)
-            prefixes.add(prefix)
-            lines.append(line)
+            if not line:
+                continue
+            if line.startswith(">"):
+                header = line  # ">label"
+                prefixes.add(header)
+            elif header is not None:
+                entries.append(f"{header}\n{line}")
+                header = None
 
-    return lines, sorted(prefixes)
+    return entries, sorted(prefixes)
 
 
 def load_tokenizer(model_path: str, max_length: int = 1024) -> Tokenizer:
@@ -81,13 +97,14 @@ def build_datasets(
     )
 
 
+
 def build_dataset_from_lines(
     lines: list[str],
     tokenizer: Tokenizer,
     prefixes: list[str] | None = None,
 ) -> tuple[ProteinDataset, list[str], int]:
     if prefixes is None:
-        prefixes = sorted({re.match(r"<\|.*\|>", line).group(0) for line in lines})
+        prefixes = sorted({line.split("\n")[0] for line in lines if line.startswith(">")})
 
     num_added_tokens = tokenizer.add_tokens(prefixes)
     return ProteinDataset(lines, tokenizer), prefixes, num_added_tokens

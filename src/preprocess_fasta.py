@@ -270,9 +270,9 @@ def make_training_lines(
     bidirectional: bool = False,
 ) -> list[str]:
     seq = str(record.seq).upper().replace("-", "")
-    lines = [f"<|{label}|>1{seq}2"]
+    lines = [f">{label}\n{seq}"]
     if bidirectional:
-        lines.append(f"<|{label}|>2{seq[::-1]}1")
+        lines.append(f">{label}\n{seq[::-1]}")
     return lines
 
 
@@ -282,17 +282,17 @@ def records_to_training_lines(
     filename_label: str,
     annotations: dict[str, dict[str, str]] | None = None,
     bidirectional: bool = False,
+    fixed_label: str | None = None,
 ) -> list[str]:
     """
     버전별로 레코드를 학습 텍스트 형식으로 변환.
 
-    v1: <|accession_pfamid_proteinname|>
-    v2: <|proteinname|>
-    v3: <|molecular_function|>  ← annotations 필요
-    v4: <|ec_number|>           ← annotations 필요
+    v1: <|accession_pfamid_proteinname_ec|>  (서열마다 개별 레이블)
+    v2: <|fixed_label|>                       (모든 서열 동일 레이블 - --v2_label)
+    v3: <|fixed_label|>                       (모든 서열 동일 레이블 - --v3_label)
+    v4: <|fixed_label|>                       (모든 서열 동일 레이블 - --v4_label)
     """
     lines = []
-    missing_annotation = 0
 
     for rec in records:
         accession, pfam_id, name = parse_header(rec)
@@ -303,36 +303,19 @@ def records_to_training_lines(
             parts = [p for p in [accession, pfam_id, name, ec] if p]
             label = sanitize_label("_".join(parts)) if parts else filename_label
 
-        elif version == "v2":
-            label = sanitize_label(name) if name else filename_label
-
-        elif version == "v3":
-            ann = (annotations or {}).get(accession, {})
-            mf = ann.get("molecular_function", "")
-            if mf:
-                label = sanitize_label(mf)
+        elif version in ("v2", "v3", "v4"):
+            # 고정 레이블 사용 (--v2_label / --v3_label / --v4_label)
+            if fixed_label:
+                label = sanitize_label(fixed_label)
             else:
-                missing_annotation += 1
-                label = sanitize_label(name) if name else filename_label
-
-        elif version == "v4":
-            ann = (annotations or {}).get(accession, {})
-            ec = ann.get("ec_number", "")
-            if ec:
-                label = sanitize_label(ec)
-            else:
-                missing_annotation += 1
-                label = sanitize_label(name) if name else filename_label
+                label = filename_label
+                logger.warning(f"버전 {version}: --{version}_label 이 지정되지 않아 파일명 레이블({filename_label}) 사용")
 
         else:
             label = filename_label
 
         lines.extend(make_training_lines(rec, label, bidirectional))
 
-    if missing_annotation > 0:
-        logger.warning(
-            f"버전 {version}: {missing_annotation}개 레코드에 어노테이션 없음 → 단백질 이름으로 대체"
-        )
     return lines
 
 
@@ -401,11 +384,15 @@ def main(args: argparse.Namespace):
     main_families = [f.upper() for f in args.main_families]
     balanced = balance_families(family_records, main_families, args.n_per_family, rng)
 
-    # 정제된 FASTA 저장
+    # 정제된 FASTA 저장 (헤더: >단백질이름)
     for fam_id, recs in balanced.items():
         out_fasta = os.path.join(clean_dir, f"{fam_id.lower()}_clean.fasta")
         with open(out_fasta, "w") as f:
-            SeqIO.write(recs, f, "fasta")
+            for rec in recs:
+                _, _, name = parse_header(rec)
+                header = name if name else rec.id
+                seq = str(rec.seq).upper().replace("-", "")
+                f.write(f">{header}\n{seq}\n")
         logger.info(f"정제된 FASTA 저장: {out_fasta} ({len(recs)}개 서열)")
 
     # 4. 버전별 학습 데이터 생성
@@ -419,6 +406,12 @@ def main(args: argparse.Namespace):
             "없으면 단백질 이름으로 대체됩니다."
         )
 
+    fixed_labels = {
+        "v2": args.v2_label,
+        "v3": args.v3_label,
+        "v4": args.v4_label,
+    }
+
     for version in versions:
         version_dir = os.path.join(args.output_dir, version)
         os.makedirs(version_dir, exist_ok=True)
@@ -427,7 +420,8 @@ def main(args: argparse.Namespace):
         for fam_id, recs in balanced.items():
             label = family_labels.get(fam_id, fam_id.lower())
             lines = records_to_training_lines(
-                recs, version, label, annotations, args.bidirectional
+                recs, version, label, annotations, args.bidirectional,
+                fixed_label=fixed_labels.get(version),
             )
             all_lines.extend(lines)
 
@@ -505,6 +499,18 @@ if __name__ == "__main__":
     parser.add_argument(
         "--seed", type=int, default=42,
         help="랜덤 시드. 기본값: 42"
+    )
+    parser.add_argument(
+        "--v2_label", type=str, default=None,
+        help="v2 버전에 사용할 고정 레이블. 예: 'Diphtheria toxin'"
+    )
+    parser.add_argument(
+        "--v3_label", type=str, default=None,
+        help="v3 버전에 사용할 고정 레이블. 예: 'Exotoxin A catalytic'"
+    )
+    parser.add_argument(
+        "--v4_label", type=str, default=None,
+        help="v4 버전에 사용할 고정 레이블. 예: 'NAD+-diphthamide ADP-ribosyltransferase activity'"
     )
     parser.add_argument(
         "--extract_domain", action="store_true",
